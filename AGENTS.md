@@ -145,13 +145,13 @@ Do NOT directly import or call `encoding/json` in business code. `json.RawMessag
 
 ### Project Governance
 
-### Branch and Upstream Sync Policy
+### 分支与上游同步策略
 
-- `main` is reserved exclusively for synchronizing the official upstream source. It must remain an unmodified mirror of the official branch: do not develop on it, create local feature commits on it, cherry-pick changes into it, or merge local branches into it.
-- Perform all project development, fixes, configuration changes, and documentation changes on `dev` (or a short-lived branch created from `dev` and merged back into `dev`). Do not commit working changes directly to `main`.
-- Design and place changes on `dev` to minimize future conflicts when bringing the latest official `main` into `dev`. Prefer additive, isolated extensions; keep changes narrowly scoped; avoid unnecessary edits to upstream-owned code; and avoid broad formatting, rename-only, or unrelated refactoring changes in files likely to change upstream.
-- When synchronizing official updates, first update `main` from the official source, then merge `main` into `dev` with a normal Git merge and resolve conflicts while preserving both the upstream behavior and local requirements.
-- Rebase is prohibited for all integration work. Never use `git rebase`, `git pull --rebase`, or a rebase-based merge strategy; use merge commits (or fast-forward updates where no divergence exists) instead.
+- `main` 分支仅用于同步官方上游源码，必须始终保持为官方分支的未修改镜像。禁止在该分支开发、创建本地功能提交、执行 cherry-pick，或合并本地分支。
+- 所有项目开发、缺陷修复、配置调整和文档修改必须在 `dev` 分支进行；也可从 `dev` 创建短期功能分支，并最终合并回 `dev`。禁止直接向 `main` 提交任何工作改动。
+- 在 `dev` 上设计和放置改动时，必须以降低未来将最新官方 `main` 合并到 `dev` 时的冲突概率为原则。优先采用新增且隔离的扩展；保持改动范围聚焦；避免不必要地修改上游维护的代码；避免对可能持续被上游修改的文件进行大范围格式化、纯重命名或无关重构。
+- 同步官方更新时，先将官方源码更新到 `main`，再使用普通 Git 合并将 `main` 合并到 `dev`。解决冲突时必须同时保留上游行为和本地需求。
+- 所有集成操作严禁使用 rebase。禁止执行 `git rebase`、`git pull --rebase` 或任何基于 rebase 的合并策略；应使用合并提交，或在不存在分歧时使用快进更新。
 
 **Protected project information:** The following project-related information is strictly protected and MUST NOT be modified, deleted, replaced, or removed under any circumstances:
 
