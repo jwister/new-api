@@ -152,6 +152,7 @@ Do NOT directly import or call `encoding/json` in business code. `json.RawMessag
 - Design and place changes on `dev` to minimize future conflicts when bringing the latest official `main` into `dev`. Prefer additive, isolated extensions; keep changes narrowly scoped; avoid unnecessary edits to upstream-owned code; and avoid broad formatting, rename-only, or unrelated refactoring changes in files likely to change upstream.
 - When synchronizing official updates, first update `main` from the official source, then merge `main` into `dev` with a normal Git merge and resolve conflicts while preserving both the upstream behavior and local requirements.
 - Rebase is prohibited for all integration work. Never use `git rebase`, `git pull --rebase`, or a rebase-based merge strategy; use merge commits (or fast-forward updates where no divergence exists) instead.
+- All Git commit messages must be written in Chinese and clearly describe the change.
 
 **Protected project information:** The following project-related information is strictly protected and MUST NOT be modified, deleted, replaced, or removed under any circumstances:
 
