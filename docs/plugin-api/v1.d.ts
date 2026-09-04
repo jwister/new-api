@@ -12,7 +12,7 @@ export interface ProtocolDecodeContext extends NativeDecodeContext {protocol: "o
 export type SubmitIntent = {kind: "submit"; model: string; action?: string; requestBody?: unknown; originTaskIds?: readonly string[]};
 export type QueryIntent = {kind: "query"; taskIds: readonly string[]};
 export type TaskIntent = SubmitIntent | QueryIntent;
-export interface NativeRoute {method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; path: string; type: "submit" | "query" | "dynamic"; action?: string; taskIdParam?: string; decode?: string; render: string; models?: readonly string[]}
+export interface NativeRoute {method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; path: string; type: "submit" | "query" | "dynamic" | "proxy"; action?: string; taskIdParam?: string; decode?: string; render: string; models?: readonly string[]}
 export type ProtocolName = "openai_responses" | "openai_video";
 export type ResponsesMode = "stream" | "sync" | "background";
 export type ProtocolClaim =
@@ -49,3 +49,4 @@ export declare function extractUsageOnSubmit(ctx: DriverContext, taskData: unkno
 export declare function extractUsageOnComplete(task: TaskView, result: NormalizedTaskResult, data: unknown): Readonly<Record<string, string | number | boolean>> | null;
 export declare function listArtifacts(task: {taskId: string; status: string; action: string; data: unknown; producerVersion: string}): readonly TaskArtifact[];
 export declare function buildContentRequest(ctx: DriverContext & {artifactKey: string; data: unknown; state?: unknown; upstreamTaskId: string; clientRequest: {method: "GET" | "HEAD"; headers: Readonly<Record<string, string>>}}): RequestDescriptor;
+export declare function buildProxyRequest(ctx: DriverContext & {requestBody: unknown; action?: string; path: string; method: string; params: Readonly<Record<string, string>>; query: Readonly<Record<string, readonly string[]>>}): RequestDescriptor;

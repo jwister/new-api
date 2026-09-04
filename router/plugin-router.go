@@ -81,6 +81,20 @@ func newPluginGenerationBuilder(staticRoutes []gin.RouteInfo, trustedProxies []s
 }
 
 func productionPluginRouteHandlers(generation *jsplugin.RoutingGeneration, binding jsplugin.RouteBinding) []gin.HandlerFunc {
+	if binding.Route.Type == jsplugin.RouteTypeProxy {
+		return []gin.HandlerFunc{
+			func(c *gin.Context) {
+				pinnedGeneration := generation
+				if state, _ := c.Request.Context().Value(pluginDispatchStateKey{}).(*pluginDispatchState); state != nil && state.generation != nil {
+					pinnedGeneration = state.generation
+				}
+				c.Set(jsplugin.ContextKeyPinnedPlugin, jsplugin.PinnedPlugin{Generation: pinnedGeneration, Plugin: binding.Plugin})
+				c.Set(jsplugin.ContextKeyPinnedRoute, jsplugin.PinnedRoute{Generation: pinnedGeneration, Plugin: binding.Plugin, Route: binding.Route})
+				c.Next()
+			},
+			middleware.TokenAuth(), middleware.SystemPerformanceCheck(), middleware.PrepareTaskPluginProxy(),
+		}
+	}
 	pinRoute := func(c *gin.Context) {
 		pinnedGeneration := generation
 		if state, _ := c.Request.Context().Value(pluginDispatchStateKey{}).(*pluginDispatchState); state != nil && state.generation != nil {

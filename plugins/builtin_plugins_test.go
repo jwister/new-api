@@ -63,7 +63,7 @@ func TestBuiltInVendorPluginsDeclareNativeRoutesAndLegacyChannelTypes(t *testing
 }
 
 func TestBuiltInTaskPluginResponsesAndUsageContracts(t *testing.T) {
-	expectedKeys := []string{"alibaba", "doubao", "google", "hailuo", "jimeng", "kling", "sora", "sunoapi", "vertex-ai", "vidu"}
+	expectedKeys := []string{"alibaba", "doubao", "google", "hailuo", "jimeng", "kling", "sora", "sunoapi", "vertex-ai", "vidu", "xhapi-seedance"}
 	generation := jsplugin.DefaultRegistry.Generation()
 	require.NotNil(t, generation)
 
@@ -87,6 +87,16 @@ func TestBuiltInTaskPluginResponsesAndUsageContracts(t *testing.T) {
 			registry := jsplugin.NewRegistry()
 			plugin, registerErr := registry.RegisterFactory(source, jsplugin.Options{Key: key})
 			require.NoError(t, registerErr)
+			if key == "xhapi-seedance" {
+				binding, claimed := registry.Generation().LookupEndpoint("POST", "/v1/videos", "seedance-2.0")
+				require.True(t, claimed)
+				assert.Same(t, plugin, binding.Plugin)
+				route, foundRoute := registry.Generation().LookupDeclaredRoute("POST", "/v1/assets")
+				require.True(t, foundRoute)
+				assert.Equal(t, jsplugin.RouteTypeProxy, route.Route.Type)
+				assert.Equal(t, "xhapi-seedance", route.Plugin.Meta.Key)
+				return
+			}
 
 			var responsesClaim jsplugin.ProtocolClaim
 			foundResponses := false

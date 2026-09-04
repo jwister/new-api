@@ -19,6 +19,7 @@ const (
 	RouteTypeSubmit  RouteType = "submit"
 	RouteTypeQuery   RouteType = "query"
 	RouteTypeDynamic RouteType = "dynamic"
+	RouteTypeProxy   RouteType = "proxy"
 )
 
 type Route struct {
@@ -712,6 +713,10 @@ func validateRoute(route *Route) error {
 	case RouteTypeDynamic:
 		if route.Decode == "" || route.Render == "" || route.TaskIDParam != "" {
 			return fmt.Errorf("dynamic route %s %s must declare decode and render and must not declare taskIdParam", route.Method, route.Path)
+		}
+	case RouteTypeProxy:
+		if route.Decode == "" || route.Render == "" || route.TaskIDParam != "" {
+			return fmt.Errorf("proxy route %s %s must declare decode and render and must not declare taskIdParam", route.Method, route.Path)
 		}
 	default:
 		return fmt.Errorf("plugin route %s %s has unsupported type %q", route.Method, route.Path, route.Type)

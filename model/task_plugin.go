@@ -18,6 +18,25 @@ type TaskPluginChannelRef struct {
 	Name string `json:"name"`
 }
 
+// GetTaskPluginChannel returns one enabled channel bound to a plugin key.
+// Native proxy routes do not carry a model, so they need identity-only lookup.
+func GetTaskPluginChannel(key, group string) (*Channel, error) {
+	var channels []Channel
+	query := DB.Where("type = ? AND status = ?", constant.ChannelTypeTaskPlugin, common.ChannelStatusEnabled)
+	if group != "" {
+		query = query.Where(commonGroupCol+" = ?", group)
+	}
+	if err := query.Order("priority DESC, weight DESC, id ASC").Find(&channels).Error; err != nil {
+		return nil, err
+	}
+	for i := range channels {
+		if channels[i].GetSetting().TaskPluginKey == key {
+			return &channels[i], nil
+		}
+	}
+	return nil, nil
+}
+
 func GetTaskPluginUsage(key string) ([]TaskPluginChannelRef, int64, error) {
 	var channels []Channel
 	if err := DB.Where("type = ? AND status = ?", constant.ChannelTypeTaskPlugin, common.ChannelStatusEnabled).Find(&channels).Error; err != nil {

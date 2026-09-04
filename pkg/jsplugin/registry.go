@@ -307,6 +307,15 @@ func CompilePlugin(source string, options Options) (*LoadedPlugin, error) {
 				return nil, fmt.Errorf("plugin %s route %s %s references missing native %s %q", meta.Key, route.Method, route.Path, kind, member)
 			}
 		}
+		if route.Type == RouteTypeProxy {
+			has, hasErr := engine.HasCallablePath(context.Background(), "buildProxyRequest")
+			if hasErr != nil {
+				return nil, hasErr
+			}
+			if !has {
+				return nil, fmt.Errorf("plugin %s proxy route requires export %q", meta.Key, "buildProxyRequest")
+			}
+		}
 	}
 	for _, claim := range meta.Protocols {
 		protocol := claim.Name

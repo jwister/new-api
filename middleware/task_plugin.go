@@ -23,6 +23,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	relaydto "github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
@@ -86,6 +87,16 @@ func PrepareTaskPluginRoute() gin.HandlerFunc {
 				status = http.StatusUnsupportedMediaType
 			}
 			abortTaskPluginRouteErrorDetail(c, status, err.Error())
+			return
+		}
+		if pinned.Route.Type == pluginruntime.RouteTypeProxy {
+			bodyObject, _ := requestContext.Body.(map[string]any)
+			bodyKind, _ := bodyObject["kind"].(string)
+			if bodyKind != string(pluginruntime.BodyJSON) {
+				abortTaskPluginRouteErrorDetail(c, http.StatusUnsupportedMediaType, "this proxy route requires a JSON body")
+				return
+			}
+			prepareTaskPluginProxy(c, pinned, requestContext)
 			return
 		}
 		bodyObject, _ := requestContext.Body.(map[string]any)
@@ -310,6 +321,122 @@ func PrepareTaskPluginRoute() gin.HandlerFunc {
 			abortTaskPluginRouteErrorDetail(c, http.StatusBadRequest, taskPluginInvalidRouteResult)
 		}
 	}
+}
+
+// PrepareTaskPluginProxy is used by synchronous native proxy routes.
+func PrepareTaskPluginProxy() gin.HandlerFunc { return PrepareTaskPluginRoute() }
+
+type taskPluginProxyDescriptor struct {
+	URL     string            `json:"url"`
+	Method  string            `json:"method"`
+	Headers map[string]string `json:"headers"`
+	Body    any               `json:"body"`
+}
+
+// prepareTaskPluginProxy executes a synchronous upstream request for native
+// proxy routes. It intentionally bypasses task persistence and billing.
+func prepareTaskPluginProxy(c *gin.Context, pinned pluginruntime.PinnedRoute, requestContext pluginruntime.RouteRequestContext) {
+	channelID := common.GetContextKeyInt(c, constant.ContextKeyChannelId)
+	if channelID == 0 {
+		// Proxy routes select their channel by the plugin identity, just like
+		// submit routes, but do not require a model field.
+		service.AppendTaskPluginIdentityFilter(c, pinned.Plugin.Meta.Key)
+		group := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
+		if group == "" {
+			group = "default"
+		}
+		channel, err := model.GetTaskPluginChannel(pinned.Plugin.Meta.Key, group)
+		if err != nil || channel == nil {
+			abortTaskPluginRouteErrorDetail(c, http.StatusServiceUnavailable, "no task plugin channel available")
+			return
+		}
+		if err := SetupContextForSelectedChannel(c, channel, ""); err != nil {
+			abortTaskPluginRouteErrorDetail(c, http.StatusServiceUnavailable, err.Error())
+			return
+		}
+	}
+	baseURL := common.GetContextKeyString(c, constant.ContextKeyChannelBaseUrl)
+	apiKey := common.GetContextKeyString(c, constant.ContextKeyChannelKey)
+	hookCtx := map[string]any{"baseUrl": baseURL, "apiKey": apiKey, "requestBody": requestContext.Body, "path": requestContext.Path, "method": requestContext.Method, "params": requestContext.Params, "query": requestContext.Query}
+	value, err := pinned.Plugin.Engine.CallMember(c.Request.Context(), "native", pinned.Route.Decode, requestContext.JSValue())
+	if err != nil {
+		abortTaskPluginRouteErrorDetail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	decoded, ok := value.(map[string]any)
+	if !ok {
+		abortTaskPluginRouteErrorDetail(c, http.StatusBadRequest, taskPluginInvalidRouteResult)
+		return
+	}
+	if action, ok := decoded["action"].(string); ok {
+		hookCtx["action"] = action
+	}
+	hookCtx["requestBody"] = decoded["requestBody"]
+	requestValue, err := pinned.Plugin.Engine.Call(c.Request.Context(), "buildProxyRequest", hookCtx)
+	if err != nil {
+		abortTaskPluginRouteErrorDetail(c, http.StatusBadGateway, err.Error())
+		return
+	}
+	var descriptor taskPluginProxyDescriptor
+	encodedDescriptor, marshalErr := common.Marshal(requestValue)
+	if marshalErr != nil || common.Unmarshal(encodedDescriptor, &descriptor) != nil || strings.TrimSpace(descriptor.URL) == "" {
+		abortTaskPluginRouteErrorDetail(c, http.StatusBadGateway, "invalid proxy request descriptor")
+		return
+	}
+	if err = pluginruntime.ValidateRequestURL(descriptor.URL, baseURL, pinned.Plugin.Meta.AllowedHosts); err != nil {
+		abortTaskPluginRouteErrorDetail(c, http.StatusBadGateway, err.Error())
+		return
+	}
+	encoded, err := common.Marshal(descriptor.Body)
+	if err != nil {
+		abortTaskPluginRouteErrorDetail(c, http.StatusBadGateway, err.Error())
+		return
+	}
+	method := strings.ToUpper(descriptor.Method)
+	if method == "" {
+		method = http.MethodPost
+	}
+	req, err := http.NewRequestWithContext(c.Request.Context(), method, descriptor.URL, bytes.NewReader(encoded))
+	if err != nil {
+		abortTaskPluginRouteErrorDetail(c, http.StatusBadGateway, err.Error())
+		return
+	}
+	for k, v := range descriptor.Headers {
+		req.Header.Set(k, v)
+	}
+	channelSetting := relaydto.ChannelSettings{}
+	if value := c.Value(string(constant.ContextKeyChannelSetting)); value != nil {
+		if setting, ok := value.(relaydto.ChannelSettings); ok {
+			channelSetting = setting
+		}
+	}
+	client, err := service.GetHttpClientWithProxySettings(channelSetting.Proxy, channelSetting)
+	if err != nil {
+		abortTaskPluginRouteErrorDetail(c, http.StatusBadGateway, err.Error())
+		return
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		abortTaskPluginRouteErrorDetail(c, http.StatusBadGateway, err.Error())
+		return
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		abortTaskPluginRouteErrorDetail(c, http.StatusBadGateway, err.Error())
+		return
+	}
+	var body any
+	if common.Unmarshal(raw, &body) != nil {
+		body = string(raw)
+	}
+	rendered, err := pinned.Plugin.Engine.CallMember(c.Request.Context(), "native", pinned.Route.Render, requestContext.JSValue(), map[string]any{"statusCode": resp.StatusCode, "headers": resp.Header, "body": body})
+	if err != nil {
+		abortTaskPluginRouteErrorDetail(c, http.StatusBadGateway, err.Error())
+		return
+	}
+	c.Abort()
+	c.JSON(resp.StatusCode, rendered)
 }
 
 // PinTaskPluginEndpoint decides shared-endpoint ownership without executing
