@@ -4,8 +4,10 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	builtinplugins "github.com/QuantumNous/new-api/plugins"
+	taskplugin "github.com/QuantumNous/new-api/relay/channel/task/jsplugin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -130,6 +132,21 @@ func TestCTYunCDanceOpenAIVideoProtocol(t *testing.T) {
 	contentRequest := pluginObject(t, contentValue)
 	assert.Equal(t, "https://cdn.example/video.mp4", contentRequest["url"])
 	assert.Equal(t, true, contentRequest["credentialless"])
+
+	rawTaskData, err := common.Marshal(successTask["data"])
+	require.NoError(t, err)
+	rendered, err := taskplugin.New(plugin).ConvertToOpenAIVideo(&model.Task{
+		TaskID:     "task_public",
+		Status:     model.TaskStatusSuccess,
+		Properties: model.Properties{OriginModelName: "cdance2.0-0807"},
+		Data:       rawTaskData,
+	})
+	require.NoError(t, err)
+	var videoResponse map[string]any
+	require.NoError(t, common.Unmarshal(rendered, &videoResponse))
+	metadataResponse, ok := videoResponse["metadata"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "https://cdn.example/video.mp4", metadataResponse["video_url"])
 
 	usageValue, err := plugin.Engine.Call(t.Context(), "extractUsage", map[string]any{"requestBody": requestBody})
 	require.NoError(t, err)

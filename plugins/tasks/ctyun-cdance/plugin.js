@@ -152,6 +152,8 @@ const legacyRenderers = {
     };
     const completedAt = Number(task.finished_at || task.updated_at || 0);
     if (completedAt > 0) output.completed_at = completedAt;
+    const videoURL = trimmed(taskData(task).content && taskData(task).content.video_url);
+    if (videoURL) output.metadata = { video_url: videoURL };
     if (task.status === "FAILURE") output.error = { code: "video_generation_failed", message: task.fail_reason || "The video generation task failed." };
     return output;
   },
