@@ -63,7 +63,7 @@ func TestBuiltInVendorPluginsDeclareNativeRoutesAndLegacyChannelTypes(t *testing
 }
 
 func TestBuiltInTaskPluginResponsesAndUsageContracts(t *testing.T) {
-	expectedKeys := []string{"alibaba", "doubao", "google", "hailuo", "jimeng", "kling", "sora", "sunoapi", "vertex-ai", "vidu", "xhapi-seedance"}
+	expectedKeys := []string{"alibaba", "ctyun-cdance", "doubao", "google", "hailuo", "jimeng", "kling", "sora", "sunoapi", "vertex-ai", "vidu", "xhapi-seedance"}
 	generation := jsplugin.DefaultRegistry.Generation()
 	require.NotNil(t, generation)
 
@@ -95,6 +95,15 @@ func TestBuiltInTaskPluginResponsesAndUsageContracts(t *testing.T) {
 				require.True(t, foundRoute)
 				assert.Equal(t, jsplugin.RouteTypeProxy, route.Route.Type)
 				assert.Equal(t, "xhapi-seedance", route.Plugin.Meta.Key)
+				return
+			}
+			if key == "ctyun-cdance" {
+				for _, model := range plugin.Meta.Models {
+					binding, claimed := registry.Generation().LookupEndpoint("POST", "/v1/videos", model)
+					require.True(t, claimed, model)
+					assert.Same(t, plugin, binding.Plugin)
+					assert.Equal(t, "openai_video", binding.Protocol)
+				}
 				return
 			}
 
