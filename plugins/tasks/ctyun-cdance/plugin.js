@@ -49,6 +49,27 @@ function parseMetadata(value) {
   return value;
 }
 
+function contentFrom(req) {
+  if (Array.isArray(req.content)) return req.content;
+  const metadata = req.metadata || {};
+  const content = [];
+  const prompt = trimmed(req.prompt);
+  if (prompt) content.push({ type: "text", text: prompt });
+  if (req.input_reference) content.push({ type: "image_url", image_url: { url: req.input_reference } });
+  if (Array.isArray(metadata.content)) content.push.apply(content, metadata.content);
+  return content;
+}
+
+function validateContent(content) {
+  if (!content.every(function (item) { return item && typeof item === "object" && ["text", "image_url"].includes(item.type); })) {
+    throw new Error("content item type is invalid");
+  }
+}
+
+function actionFrom(content) {
+  return content.some(function (item) { return item && item.type !== "text"; }) ? "image_to_video" : "text_to_video";
+}
+
 function taskData(ctx) {
   const data = (ctx && ctx.data) || {};
   if (data.data && typeof data.data === "object" && !Array.isArray(data.data)) return data.data;
@@ -58,11 +79,7 @@ function taskData(ctx) {
 export function buildSubmitRequest(ctx) {
   const req = ctx.requestBody || {};
   const metadata = Object.assign({}, req.metadata || {});
-  const content = [];
-  const prompt = trimmed(req.prompt);
-  if (prompt) content.push({ type: "text", text: prompt });
-  if (req.input_reference) content.push({ type: "image_url", image_url: { url: req.input_reference } });
-  if (Array.isArray(metadata.content)) content.push.apply(content, metadata.content);
+  const content = contentFrom(req);
   const body = Object.assign({}, metadata, { model: ctx.upstreamModel || req.model || "", content: content });
   const seconds = durationFrom(req);
   if (seconds !== undefined) body.duration = seconds;
@@ -71,7 +88,7 @@ export function buildSubmitRequest(ctx) {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json", Authorization: "Bearer " + ctx.apiKey },
     body: body,
-    action: ctx.action,
+    action: ctx.action || actionFrom(content),
     rewriteModel: body.model,
   };
 }
@@ -195,12 +212,14 @@ export const protocols = {
       }
       durationFrom(req);
       if (hasInputReferenceFile) req.input_reference = { __fileRef: "request_file:input_reference", encoding: "dataUrl", maxBytes: 15728640 };
-      if (!trimmed(req.prompt) && !req.input_reference && !req.image) throw new Error("input is required");
       if (req.input_reference === undefined && req.image !== undefined) req.input_reference = req.image;
+      const content = contentFrom(req);
+      if (!content.length) throw new Error("input is required");
+      validateContent(content);
       return {
         kind: "submit",
         model: ctx.model,
-        action: req.input_reference ? "image_to_video" : "text_to_video",
+        action: actionFrom(content),
         requestBody: Object.assign({}, req, { model: ctx.model }),
       };
     },

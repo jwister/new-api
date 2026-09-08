@@ -171,6 +171,39 @@ func TestCTYunCDanceOpenAIVideoProtocol(t *testing.T) {
 	placeholder := multipartBody["input_reference"].(map[string]any)
 	assert.Equal(t, "request_file:input_reference", placeholder["__fileRef"])
 	assert.Equal(t, "dataUrl", placeholder["encoding"])
+
+	contentOnlyValue, err := plugin.Engine.CallPath(t.Context(), "protocols", []string{"openai_video", "decodeRequest"}, map[string]any{
+		"model": "cdance2.0-0807",
+		"body": map[string]any{"kind": "json", "value": map[string]any{
+			"model": "cdance2.0-0807",
+			"content": []any{
+				map[string]any{"type": "text", "text": "sunset over the sea"},
+				map[string]any{"type": "image_url", "image_url": map[string]any{"url": "https://assets.example/reference.png"}},
+			},
+		}},
+	})
+	require.NoError(t, err)
+	contentOnly := pluginObject(t, contentOnlyValue)
+	contentOnlyBody := contentOnly["requestBody"].(map[string]any)
+	assert.Equal(t, "image_to_video", contentOnly["action"])
+	assert.Equal(t, "sunset over the sea", contentOnlyBody["content"].([]any)[0].(map[string]any)["text"])
+	contentOnlySubmitValue, err := plugin.Engine.Call(t.Context(), "buildSubmitRequest", map[string]any{
+		"baseUrl":       "https://ai.ctaigw.cn",
+		"apiKey":        "secret",
+		"upstreamModel": "cdance2.0-0807",
+		"requestBody":   contentOnlyBody,
+	})
+	require.NoError(t, err)
+	contentOnlySubmit := pluginObject(t, contentOnlySubmitValue)
+	assert.Equal(t, "image_to_video", contentOnlySubmit["action"])
+	assert.Equal(t, "sunset over the sea", contentOnlySubmit["body"].(map[string]any)["content"].([]any)[0].(map[string]any)["text"])
+
+	_, err = plugin.Engine.CallPath(t.Context(), "protocols", []string{"openai_video", "decodeRequest"}, map[string]any{
+		"model": "cdance2.0-0807",
+		"body":  map[string]any{"kind": "json", "value": map[string]any{"content": []any{"invalid"}}},
+	})
+	require.ErrorContains(t, err, "content item type is invalid")
+
 	_, err = plugin.Engine.CallPath(t.Context(), "protocols", []string{"openai_video", "decodeRequest"}, map[string]any{
 		"model": "cdance2.0-0807",
 		"body":  map[string]any{"kind": "multipart", "fields": map[string]any{}, "files": []any{map[string]any{"field": "unexpected"}}},
