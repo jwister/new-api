@@ -7,7 +7,7 @@ export const meta = {
     en: "CTYun Edge AI Gateway CDance video generation",
     zh: "天翼云边缘 AI 网关 CDance 视频生成",
   },
-  version: "1.0.0",
+  version: "1.0.1",
   author: { name: "QuantumNous" },
   models: ["cdance2.0-0807", "cdance2.0-fast-0807", "cdance2.0-mini-0807", "cdance2.5-0807", "cdance2.0-0813"],
   fetchMode: "per_task",
@@ -15,7 +15,7 @@ export const meta = {
     tokens: {
       type: "number",
       unit: "token",
-      description: { en: "Upstream CDance token usage.", zh: "上游 CDance Token 用量。" },
+      description: { en: "Upstream CDance billing token usage (estimated on submit, actual on completion).", zh: "上游 CDance 计费 Token 用量（提交时预估，完成时实扣）。" },
     },
     duration: {
       type: "number",
@@ -23,11 +23,27 @@ export const meta = {
       description: { en: "Requested video duration in seconds.", zh: "请求的视频时长，单位为秒。" },
     },
     resolution: {
-      enum: ["480p", "720p", "1080p"],
+      enum: ["480p", "720p", "1080p", "4k"],
+      enumLabels: {
+        "480p": { en: "480p", zh: "480p" },
+        "720p": { en: "720p", zh: "720p" },
+        "1080p": { en: "1080p", zh: "1080p" },
+        "4k": { en: "4k", zh: "4k" },
+      },
       description: { en: "Requested output resolution.", zh: "请求的输出分辨率。" },
     },
+    video_input: {
+      enum: ["none", "video"],
+      enumLabels: { none: { en: "No reference video", zh: "无参考视频" }, video: { en: "With reference video", zh: "有参考视频" } },
+      description: { en: "Reference video input", zh: "参考视频输入" },
+    },
   },
-  usageExamples: [{ label: "2.0 5s 720p", facts: { tokens: 108000, duration: 5, resolution: "720p" } }],
+  usageExamples: [
+    { label: "480p · 5s", facts: { tokens: 48038, duration: 5, resolution: "480p", video_input: "none" } },
+    { label: "720p · 5s", facts: { tokens: 108000, duration: 5, resolution: "720p", video_input: "none" } },
+    { label: "1080p · 5s", facts: { tokens: 243000, duration: 5, resolution: "1080p", video_input: "none" } },
+    { label: "4k · 5s", facts: { tokens: 972000, duration: 5, resolution: "4k", video_input: "none" } },
+  ],
   protocols: ["openai_video"],
 };
 
@@ -49,6 +65,36 @@ function parseMetadata(value) {
   return value;
 }
 
+function normalizeResolution(value) {
+  const raw = trimmed(value).toLowerCase();
+  if (["480p", "720p", "1080p", "4k"].includes(raw)) return raw;
+  const parts = raw.replace("*", "x").split("x");
+  if (parts.length !== 2) return "720p";
+  const max = Math.max(Number(parts[0]), Number(parts[1]));
+  if (max >= 3840) return "4k";
+  if (max >= 1920) return "1080p";
+  if (max >= 1280) return "720p";
+  return "480p";
+}
+
+function resolutionMaxPixels(resolution) {
+  if (resolution === "480p") return [854, 480];
+  if (resolution === "1080p") return [1920, 1080];
+  if (resolution === "4k") return [3840, 2160];
+  return [1280, 720];
+}
+
+function estimateTokens(seconds, resolution) {
+  const dims = resolutionMaxPixels(resolution);
+  return (seconds * dims[0] * dims[1] * 24) / 1024;
+}
+
+function hasVideo(content) {
+  return Array.isArray(content) && content.some(function (item) {
+    return item && (item.type === "video_url" || Object.prototype.hasOwnProperty.call(item, "video_url"));
+  });
+}
+
 function contentFrom(req) {
   if (Array.isArray(req.content)) return req.content;
   const metadata = req.metadata || {};
@@ -61,7 +107,9 @@ function contentFrom(req) {
 }
 
 function validateContent(content) {
-  if (!content.every(function (item) { return item && typeof item === "object" && ["text", "image_url"].includes(item.type); })) {
+  if (!content.every(function (item) {
+    return item && typeof item === "object" && ["text", "image_url", "video_url", "audio_url"].includes(item.type);
+  })) {
     throw new Error("content item type is invalid");
   }
 }
@@ -128,32 +176,73 @@ export function parseTaskResult(_ctx, body) {
 }
 
 export function listArtifacts(task) {
-  const videoURL = trimmed(taskData(task).content && taskData(task).content.video_url);
-  return task.status === "SUCCESS" && videoURL ? [{ key: "video", type: "video", mimeType: "video/mp4" }] : [];
+  const data = taskData(task);
+  const content = (data && data.content) || {};
+  const videoURL = trimmed(content.video_url);
+  const lastFrameURL = trimmed(content.last_frame_url);
+  const artifacts = [];
+  if (task.status === "SUCCESS" && videoURL) {
+    artifacts.push({ key: "video", type: "video", mimeType: "video/mp4" });
+  }
+  if (task.status === "SUCCESS" && lastFrameURL) {
+    artifacts.push({ key: "last_frame", type: "image", mimeType: "image/png" });
+  }
+  return artifacts;
 }
 
 export function buildContentRequest(ctx) {
-  if (ctx.artifactKey !== "video") throw new Error("artifact_not_found");
-  const url = trimmed(taskData(ctx).content && taskData(ctx).content.video_url);
-  if (!url) throw new Error("artifact_not_found");
-  return { url: url, method: ctx.clientRequest.method, credentialless: true };
+  const data = taskData(ctx);
+  const content = (data && data.content) || {};
+  if (ctx.artifactKey === "video") {
+    const url = trimmed(content.video_url);
+    if (!url) throw new Error("artifact_not_found");
+    return { url: url, method: ctx.clientRequest.method, credentialless: true };
+  }
+  if (ctx.artifactKey === "last_frame") {
+    const url = trimmed(content.last_frame_url);
+    if (!url) throw new Error("artifact_not_found");
+    return { url: url, method: ctx.clientRequest.method, credentialless: true };
+  }
+  throw new Error("artifact_not_found");
 }
 
 export function extractUsage(ctx) {
   const req = ctx.requestBody || {};
-  const facts = {};
-  const seconds = durationFrom(req);
-  if (seconds !== undefined) facts.duration = seconds;
-  const resolution = trimmed((req.metadata || {}).resolution).toLowerCase();
-  if (["480p", "720p", "1080p"].includes(resolution)) facts.resolution = resolution;
+  const metadata = req.metadata || {};
+  let seconds = durationFrom(req);
+  if (seconds === undefined) {
+    const fromMeta = Number(metadata.duration || metadata.seconds);
+    if (Number.isFinite(fromMeta) && fromMeta > 0) seconds = fromMeta;
+  }
+  const sec = seconds !== undefined ? seconds : 5;
+  const rawResolution = metadata.resolution || req.resolution || req.size;
+  const resolution = normalizeResolution(rawResolution);
+  const content = contentFrom(req);
+  const withVideo = hasVideo(content);
+
+  const facts = {
+    tokens: estimateTokens(sec, resolution),
+    resolution: resolution,
+    video_input: withVideo ? "video" : "none",
+  };
+  if (seconds !== undefined) {
+    facts.duration = seconds;
+  }
   return facts;
 }
 
 export function extractUsageOnComplete(_task, _taskResult, body) {
-  const usage = (body || {}).usage || {};
+  if (!body) return {};
+  if (body.status && body.status !== "succeeded") return {};
+  const facts = {};
+  const usage = body.usage || {};
   let tokens = Number(usage.completion_tokens);
   if (!Number.isFinite(tokens) || tokens <= 0) tokens = Number(usage.total_tokens);
-  return Number.isFinite(tokens) && tokens > 0 ? { tokens: tokens } : {};
+  if (Number.isFinite(tokens) && tokens > 0) facts.tokens = tokens;
+  const content = body.content || {};
+  const resolution = trimmed(content.resolution || body.resolution).toLowerCase();
+  if (["480p", "720p", "1080p", "4k"].includes(resolution)) facts.resolution = resolution;
+  return facts;
 }
 
 const legacyRenderers = {
@@ -169,8 +258,14 @@ const legacyRenderers = {
     };
     const completedAt = Number(task.finished_at || task.updated_at || 0);
     if (completedAt > 0) output.completed_at = completedAt;
-    const videoURL = trimmed(taskData(task).content && taskData(task).content.video_url);
-    if (videoURL) output.metadata = { video_url: videoURL };
+    const content = (taskData(task) && taskData(task).content) || {};
+    const videoURL = trimmed(content.video_url);
+    if (videoURL) {
+      output.metadata = { video_url: videoURL };
+      if (trimmed(content.last_frame_url)) {
+        output.metadata.last_frame_url = trimmed(content.last_frame_url);
+      }
+    }
     if (task.status === "FAILURE") output.error = { code: "video_generation_failed", message: task.fail_reason || "The video generation task failed." };
     return output;
   },
@@ -213,6 +308,11 @@ export const protocols = {
       durationFrom(req);
       if (hasInputReferenceFile) req.input_reference = { __fileRef: "request_file:input_reference", encoding: "dataUrl", maxBytes: 15728640 };
       if (req.input_reference === undefined && req.image !== undefined) req.input_reference = req.image;
+      const metadata = Object.assign({}, req.metadata || {});
+      if (req.resolution && !metadata.resolution) metadata.resolution = normalizeResolution(req.resolution);
+      else if (req.size && !metadata.resolution) metadata.resolution = normalizeResolution(req.size);
+      req.metadata = metadata;
+
       const content = contentFrom(req);
       if (!content.length) throw new Error("input is required");
       validateContent(content);

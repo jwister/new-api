@@ -7,9 +7,9 @@ export const meta = {
     en: "XHAPI Seedance video generation and asset management",
     zh: "星环 API Seedance 视频生成及素材管理",
   },
-  version: "1.0.0",
+  version: "1.0.1",
   author: { name: "QuantumNous" },
-  models: ["seedance-2.0", "seedance-2.0-fast", "seedance-2.0-mini"],
+  models: ["seedance-2.0", "seedance-2.0-fast", "seedance-2.0-mini","seedance-2.5"],
   fetchMode: "per_task",
   usageSchema: {
     duration: { type: "number", unit: "second", description: { en: "Requested video duration in seconds.", zh: "请求的视频时长（秒）。" } },

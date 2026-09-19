@@ -153,9 +153,32 @@ func TestCTYunCDanceOpenAIVideoProtocol(t *testing.T) {
 	usage := pluginObject(t, usageValue)
 	assert.Equal(t, float64(5), usage["duration"])
 	assert.Equal(t, "720p", usage["resolution"])
+	assert.Equal(t, float64(108000), usage["tokens"])
+	assert.Equal(t, "none", usage["video_input"])
+
+	req4k := map[string]any{"seconds": 5, "metadata": map[string]any{"resolution": "4k"}}
+	usage4kValue, err := plugin.Engine.Call(t.Context(), "extractUsage", map[string]any{"requestBody": req4k})
+	require.NoError(t, err)
+	assert.Equal(t, float64(972000), pluginObject(t, usage4kValue)["tokens"])
+
 	completedUsageValue, err := plugin.Engine.Call(t.Context(), "extractUsageOnComplete", map[string]any{}, map[string]any{}, map[string]any{"usage": map[string]any{"total_tokens": 108000}})
 	require.NoError(t, err)
 	assert.Equal(t, float64(108000), pluginObject(t, completedUsageValue)["tokens"])
+
+	successTaskWithLastFrame := map[string]any{
+		"status": "SUCCESS",
+		"data": map[string]any{
+			"status": "succeeded",
+			"content": map[string]any{
+				"video_url":      "https://cdn.example/video.mp4",
+				"last_frame_url": "https://cdn.example/last_frame.png",
+			},
+		},
+	}
+	artifactsWithLFValue, err := plugin.Engine.Call(t.Context(), "listArtifacts", successTaskWithLastFrame)
+	require.NoError(t, err)
+	artifactsLF := pluginObject(t, map[string]any{"items": artifactsWithLFValue})["items"].([]any)
+	require.Len(t, artifactsLF, 2)
 
 	multipartValue, err := plugin.Engine.CallPath(t.Context(), "protocols", []string{"openai_video", "decodeRequest"}, map[string]any{
 		"model": "cdance2.0-0807",
