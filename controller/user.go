@@ -972,9 +972,20 @@ func CreateUser(c *gin.Context) {
 	var user model.User
 	err := common.DecodeJson(c.Request.Body, &user)
 	user.Username = strings.TrimSpace(user.Username)
+	user.Email = model.NormalizeEmail(user.Email)
 	if err != nil || user.Username == "" || user.Password == "" {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
+	}
+	if user.Email != "" {
+		if err := model.EnsureEmailAvailable(user.Email, 0); err != nil {
+			if errors.Is(err, model.ErrEmailAlreadyTaken) {
+				common.ApiErrorI18n(c, i18n.MsgUserEmailAlreadyTaken)
+				return
+			}
+			common.ApiErrorI18n(c, i18n.MsgDatabaseError)
+			return
+		}
 	}
 	if err := common.Validate.Struct(&user); err != nil {
 		common.ApiErrorI18n(c, i18n.MsgUserInputInvalid, map[string]any{"Error": err.Error()})
@@ -991,6 +1002,7 @@ func CreateUser(c *gin.Context) {
 	// Even for admin users, we cannot fully trust them!
 	cleanUser := model.User{
 		Username:    user.Username,
+		Email:       user.Email,
 		Password:    user.Password,
 		DisplayName: user.DisplayName,
 		Role:        user.Role, // 保持管理员设置的角色
@@ -1017,6 +1029,7 @@ func CreateUser(c *gin.Context) {
 
 	recordManageAuditFor(c, cleanUser.Id, "user.create", map[string]any{
 		"username": cleanUser.Username,
+		"email":    cleanUser.Email,
 		"role":     cleanUser.Role,
 	})
 	c.JSON(http.StatusOK, gin.H{
