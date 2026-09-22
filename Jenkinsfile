@@ -75,8 +75,8 @@ pipeline {
         stage('推送镜像') {
             steps {
                 script {
-                    docker.withRegistry('https://index.docker.io/v1/', env.DOCKERHUB_CREDENTIALS) {
-                        retry(3) {
+                    retry(3) {
+                        docker.withRegistry('https://index.docker.io/v1/', env.DOCKERHUB_CREDENTIALS) {
                             sh '''
                                 set -eu
                                 docker push "${DOCKER_IMAGE}:${IMAGE_TAG}"
