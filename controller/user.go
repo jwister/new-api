@@ -1007,10 +1007,10 @@ func CreateUser(c *gin.Context) {
 	if user.Email != "" {
 		if err := model.EnsureEmailAvailable(user.Email, 0); err != nil {
 			if errors.Is(err, model.ErrEmailAlreadyTaken) {
-				common.ApiErrorI18n(c, i18n.MsgUserEmailAlreadyTaken)
+				common.ApiErrorT(c, "Email address is already in use")
 				return
 			}
-			common.ApiErrorI18n(c, i18n.MsgDatabaseError)
+			common.ApiErrorT(c, "Database error, please contact the administrator")
 			return
 		}
 	}
